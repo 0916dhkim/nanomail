@@ -1,0 +1,19 @@
+{
+  "name": "@nanomail/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "sync-secrets": "tsx scripts/sync-secrets.ts",
+    "deploy": "pnpm run sync-secrets && wrangler deploy"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260101.0",
+    "@nanomail/secrets": "workspace:*",
+    "dotenv": "^16.4.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.0.0"
+  }
+}

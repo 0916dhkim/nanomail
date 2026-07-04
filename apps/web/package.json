@@ -1,0 +1,34 @@
+{
+  "name": "@nanomail/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build && tsc --noEmit",
+    "start": "node .output/server/index.mjs"
+  },
+  "dependencies": {
+    "@flow-css/core": "^1.4.0",
+    "@nanomail/db": "workspace:*",
+    "@nanomail/secrets": "workspace:*",
+    "@tanstack/react-router": "^1.170.16",
+    "@tanstack/react-start": "^1.168.26",
+    "drizzle-orm": "1.0.0-rc.4",
+    "h3": "2.0.1-rc.22",
+    "pg": "^8.13.0",
+    "postal-mime": "^2.4.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@flow-css/vite": "^1.4.0",
+    "@types/pg": "^8.11.0",
+    "dotenv": "^16.4.0",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "nitro": "^3.0.260311-beta",
+    "typescript": "^5.7.0",
+    "vite": "^8.0.14"
+  }
+}

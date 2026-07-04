@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.output/
+.vinxi/
+.wrangler/
+*.local
+.env
+.env.*
+!.env.example
+routeTree.gen.ts
+drizzle/meta/

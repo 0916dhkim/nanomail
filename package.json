@@ -1,0 +1,23 @@
+{
+  "name": "nanomail",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm run --parallel dev:web dev:worker",
+    "dev:web": "pnpm --filter @nanomail/web dev",
+    "dev:worker": "pnpm --filter @nanomail/worker dev",
+    "build": "pnpm run --recursive build",
+    "db:generate": "pnpm --filter @nanomail/db generate",
+    "db:push": "pnpm --filter @nanomail/db push",
+    "db:studio": "pnpm --filter @nanomail/db studio"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
+  }
+}

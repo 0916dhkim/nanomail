@@ -1,0 +1,11 @@
+name = "nanomail-worker"
+main = "src/index.ts"
+compatibility_date = "2026-06-20"
+
+# The worker forwards inbound mail to the app backend's ingest endpoint;
+# it never connects to the database directly.
+[vars]
+INGEST_URL = "https://app.example.com/api/ingest"
+
+# INGEST_SECRET must match the backend's INGEST_SECRET env var. Set it with:
+#   wrangler secret put INGEST_SECRET
