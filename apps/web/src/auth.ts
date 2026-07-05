@@ -42,6 +42,7 @@ async function verifyPassword(
   if (!salt || !hash) return false;
   const hashBuffer = Buffer.from(hash, "hex");
   const derived = (await scryptAsync(password, salt, 64)) as Buffer;
+  if (hashBuffer.length !== derived.length) return false;
   return timingSafeEqual(hashBuffer, derived);
 }
 
@@ -64,9 +65,9 @@ function serializeExpiredSessionCookie(): string {
   return "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
 }
 
-// --- Server Functions ---
+// --- Session Lookup (private — only called from server fn handlers) ---
 
-export async function getSessionFromRequest() {
+async function getSessionFromRequest() {
   const request = getRequest();
   const cookieHeader = request.headers.get("cookie") ?? "";
   const sessionId = parseCookies(cookieHeader).session;
@@ -84,6 +85,15 @@ export async function getSessionFromRequest() {
 
   return result[0] ?? null;
 }
+
+async function getSessionIdFromRequest(): Promise<string | null> {
+  const request = getRequest();
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  const sessionId = parseCookies(cookieHeader).session;
+  return sessionId || null;
+}
+
+// --- Server Functions ---
 
 export const getSession = createServerFn({ method: "GET" }).handler(
   async () => {
@@ -149,27 +159,23 @@ export const createUserFn = createServerFn({ method: "POST" })
 
 // --- First-run Setup ---
 
-/**
- * Whether the app has any users at all. When false, the root route redirects
- * unauthenticated visitors to `/setup` so the first admin account can be
- * created. Not cached: a `COUNT(*)` on the users PK index is sub-millisecond,
- * and skipping the cache keeps setup state always-correct (e.g. if an operator
- * truncates the table while the server is running).
- */
-export async function isSetupRequired(): Promise<boolean> {
-  const db = await getDb();
-  const [row] = await db.select({ n: count() }).from(users);
-  return (row?.n ?? 0) === 0;
-}
+export const isSetupRequired = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const db = await getDb();
+    const [row] = await db.select({ n: count() }).from(users);
+    return (row?.n ?? 0) === 0;
+  },
+);
 
 export const setupAdminFn = createServerFn({ method: "POST" })
   .validator((data: { email: string; password: string }) => data)
   .handler(async ({ data }) => {
-    if (!(await isSetupRequired())) {
+    const db = await getDb();
+    const [row] = await db.select({ n: count() }).from(users);
+    if ((row?.n ?? 0) > 0) {
       return { error: "Setup is already complete" };
     }
 
-    const db = await getDb();
     const existing = await db
       .select({ id: users.id })
       .from(users)
@@ -196,9 +202,7 @@ export const setupAdminFn = createServerFn({ method: "POST" })
 
 export const logoutFn = createServerFn({ method: "POST" }).handler(
   async () => {
-    const request = getRequest();
-    const cookieHeader = request.headers.get("cookie") ?? "";
-    const sessionId = parseCookies(cookieHeader).session;
+    const sessionId = await getSessionIdFromRequest();
 
     if (sessionId) {
       const db = await getDb();

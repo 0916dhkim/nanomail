@@ -4,10 +4,10 @@ import { css } from "@flow-css/core/css";
 import { desc, eq } from "drizzle-orm";
 import { emails } from "@nanomail/db";
 import { getDb } from "~/db";
-import { getSessionFromRequest } from "~/auth";
+import { getSession } from "~/auth";
 
 const fetchInbox = createServerFn({ method: "GET" }).handler(async () => {
-  const user = await getSessionFromRequest();
+  const user = await getSession();
   if (!user) throw redirect({ to: "/login" });
   const db = await getDb();
   return db

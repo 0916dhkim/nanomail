@@ -62,56 +62,74 @@ a standalone CLI; it does not import the secrets client.
 - [ ] Confirm the migrate log prints `Migrations complete.`
 - [ ] (Optional) Sanity-check with `pnpm db:studio`
 
-## 4. Deploy the backend
+## 4. Deploy the backend + worker (Docker Compose / Dokploy)
 
-The backend is a TanStack Start app on Nitro. Build it and run it wherever you
-host Node apps (or pick a [Nitro preset](https://nitro.build/deploy) target).
-It must be reachable at a public URL so the Cloudflare worker can POST to it.
+The repo ships a `docker-compose.yml` with two services:
+
+- **`backend`** — builds from the `production` Dockerfile target, serves on
+  port 3000. Has a healthcheck hitting `/api/ingest` (any HTTP response < 500
+  proves Nitro booted and secret-party was reachable).
+- **`worker-deployer`** — builds from the `worker-deployer` target, runs
+  `sync-secrets` + `wrangler deploy` as a one-shot, then exits. Depends on the
+  backend being healthy so mail isn't forwarded before the backend is ready.
+
+### 4a. Configure environment
+
+- [ ] Copy `.env.example` to `.env` and fill in:
+      ```ini
+      SECRETS_BASE_URL=https://secrets.example.com
+      SECRETS_ENVIRONMENT_ID=<environment id from step 1>
+      SECRETS_PRIVATE_KEY=<base64 PKCS8 private key from step 1>
+      CLOUDFLARE_API_TOKEN=<Cloudflare API token with Workers edit permission>
+      CLOUDFLARE_ACCOUNT_ID=<optional — omit if token is single-account scoped>
+      INGEST_URL=https://<your-backend-domain>/api/ingest
+      ```
+      Docker Compose reads `.env` automatically. For Dokploy, set the same
+      vars in the project's environment configuration.
+
+### 4b. Build and start
+
+- [ ] From the repo root:
+      ```bash
+      docker compose up --build -d
+      ```
+      The backend starts, the healthcheck passes once Nitro is ready, then
+      the worker-deployer runs and exits 0.
+- [ ] Check logs:
+      ```bash
+      docker compose logs backend
+      docker compose logs worker-deployer
+      ```
+- [ ] Visit the backend's public URL. With an empty `users` table you'll be
+      redirected to `/setup` — create the first admin account (email +
+      password, ≥8 chars), then log in at `/login`.
+- [ ] (Optional) Verify the ingest endpoint rejects unauthenticated requests:
+      ```bash
+      curl -i https://<your-backend-domain>/api/ingest
+      # expect 401
+      ```
+- [ ] In the Cloudflare dashboard, wire the deployed worker to an Email
+      Routing rule so inbound mail is delivered to it.
+
+### Manual deployment (alternative to Compose)
+
+If you're not using Docker Compose, build and run the backend directly:
 
 - [ ] Build:
       ```bash
       pnpm build
       ```
-- [ ] Start the server with the repo-root `.env` loaded (the Vite config loads
-      it automatically in dev; in production, ensure the same three
-      `SECRETS_*` vars are present in the process environment)
-- [ ] Visit the public URL in a browser. With an empty `users` table you'll be
-      redirected to `/setup` — create the first admin account there (email +
-      password, ≥8 chars), then log in at `/login`
-- [ ] (Optional, but recommended before going further) Verify the ingest
-      endpoint rejects unauthenticated requests:
-      ```bash
-      curl -i https://your-backend.example.com/api/ingest
-      # expect 401
-      ```
-
-## 5. Deploy the Cloudflare email worker
-
-The worker forwards inbound mail to the backend's `/api/ingest`. It needs one
-non-secret config value (`INGEST_URL`) plus the secrets in the
-`WORKER_SECRETS` manifest (`apps/worker/scripts/sync-secrets.ts`). The deploy
-script pulls those from secret-party and pushes them into Cloudflare's
-encrypted secret store, so secret-party stays the single source of truth
-without shipping the private key to the edge.
-
-- [ ] Point the worker at your backend in `apps/worker/wrangler.toml`:
-      ```toml
-      [vars]
-      INGEST_URL = "https://your-backend.example.com/api/ingest"
-      ```
-- [ ] Ensure `SECRETS_BASE_URL`, `SECRETS_ENVIRONMENT_ID`, and
-      `SECRETS_PRIVATE_KEY` are set in your deploy environment (the same values
-      as the root `.env`). The deploy aborts if any are missing — there is no
-      manual fallback.
-- [ ] Deploy. This provisions the worker's secrets and ships the code in one
-      step:
+- [ ] Start the server with the `SECRETS_*` vars in the process environment
+      (in dev the Vite config loads `.env`; in production inject them
+      directly).
+- [ ] Deploy the worker separately:
       ```bash
       pnpm --filter @nanomail/worker deploy
       ```
-- [ ] In the Cloudflare dashboard, wire the worker to an Email Routing rule so
-      inbound mail is delivered to it
+      Point `INGEST_URL` in `apps/worker/wrangler.toml` at your backend first.
+      Requires `SECRETS_*` in the environment and `CLOUDFLARE_API_TOKEN`.
 
-## 6. Post-deploy verification
+## 5. Post-deploy verification
 
 - [ ] Send a test email to an address routed by Cloudflare Email Routing
 - [ ] Confirm it appears in the inbox UI after refreshing `/`
