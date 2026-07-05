@@ -21,6 +21,13 @@ loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
  */
 const WORKER_SECRETS = ["INGEST_SECRET"] as const;
 
+/**
+ * Deploy-machine credentials fetched from secret-party and set in
+ * `process.env` so `wrangler` can authenticate. These don't go into
+ * Cloudflare's secret store — they're used by the deploy tooling itself.
+ */
+const DEPLOY_CREDENTIALS = ["CLOUDFLARE_API_TOKEN"] as const;
+
 const baseUrl = process.env.SECRETS_BASE_URL;
 const environmentId = process.env.SECRETS_ENVIRONMENT_ID;
 const privateKeyBase64 = process.env.SECRETS_PRIVATE_KEY;
@@ -34,25 +41,34 @@ if (!baseUrl || !environmentId || !privateKeyBase64) {
   process.exit(1);
 }
 
-const secrets = await loadSecrets({
+console.log("[sync-secrets] fetching secrets from secret-party...");
+const allSecrets = await loadSecrets({
   baseUrl,
   environmentId,
   privateKeyBase64,
-  keys: WORKER_SECRETS,
+  keys: [...WORKER_SECRETS, ...DEPLOY_CREDENTIALS],
 });
 
+// Set deploy credentials in process.env so wrangler picks them up.
+for (const key of DEPLOY_CREDENTIALS) {
+  process.env[key] = allSecrets[key];
+  console.log(`[sync-secrets] set ${key} in process.env`);
+}
+
 for (const key of WORKER_SECRETS) {
-  console.log(`Syncing ${key} from secret-party to Cloudflare...`);
+  console.log(`[sync-secrets] syncing ${key} to Cloudflare...`);
   const result = spawnSync("wrangler", ["secret", "put", key], {
-    input: secrets[key],
+    input: allSecrets[key],
     stdio: ["pipe", "inherit", "inherit"],
   });
   if (result.status !== 0) {
     console.error(
-      `Failed to set ${key} (wrangler exited with ${result.status ?? "unknown"}).`,
+      `[sync-secrets] failed to set ${key} (wrangler exited with ${result.status ?? "unknown"}).`,
     );
     process.exit(result.status ?? 1);
   }
 }
 
-console.log(`Synced ${WORKER_SECRETS.length} secret(s) from secret-party.`);
+console.log(
+  `[sync-secrets] synced ${WORKER_SECRETS.length} worker secret(s) and set ${DEPLOY_CREDENTIALS.length} deploy credential(s).`,
+);
