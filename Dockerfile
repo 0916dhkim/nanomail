@@ -27,6 +27,14 @@ HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=10 \
   CMD node -e "fetch('http://localhost:3000/api/ingest').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
 CMD ["node", ".output/server/index.mjs"]
 
+# Migrator (one-shot: fetch DATABASE_URL from secret-party, run migrations)
+FROM deps AS migrator
+COPY tsconfig.base.json ./
+COPY packages/db/ packages/db/
+COPY packages/secrets/ packages/secrets/
+WORKDIR /app/packages/db
+CMD ["pnpm", "migrate"]
+
 # Worker deployer (one-shot: sync secrets from secret-party, deploy to Cloudflare)
 FROM deps AS worker-deployer
 COPY tsconfig.base.json ./

@@ -48,32 +48,25 @@ vars are read by the backend and by the worker's `sync-secrets` step.
       SECRETS_PRIVATE_KEY=<base64 PKCS8 private key from step 1>
       ```
 
-## 3. Apply database migrations
+## 3. Deploy via Docker Compose / Dokploy
 
-The migrate script (`packages/db/src/migrate.ts`) reads its connection string
-from its **own** environment — `DATABASE_URL` directly, not secret-party. It's
-a standalone CLI; it does not import the secrets client.
+The repo ships a `docker-compose.yml` with three services forming a dependency
+chain — migrations run first, then the backend, then the worker:
 
-- [ ] Make `DATABASE_URL` available to the migrate command (e.g. export it in
-      your shell, or set it inline):
-      ```bash
-      DATABASE_URL=postgres://... pnpm --filter @nanomail/db migrate
-      ```
-- [ ] Confirm the migrate log prints `Migrations complete.`
-- [ ] (Optional) Sanity-check with `pnpm db:studio`
-
-## 4. Deploy the backend + worker (Docker Compose / Dokploy)
-
-The repo ships a `docker-compose.yml` with two services:
-
-- **`backend`** — builds from the `production` Dockerfile target, serves on
-  port 3000. Has a healthcheck hitting `/api/ingest` (any HTTP response < 500
-  proves Nitro booted and secret-party was reachable).
+- **`migrator`** — builds from the `migrator` Dockerfile target, runs
+  `pnpm --filter @nanomail/db migrate` as a one-shot, then exits. Fetches
+  `DATABASE_URL` from secret-party (same as the backend). Idempotent — safe to
+  re-run on every deploy; Drizzle tracks applied migrations in
+  `__drizzle_migrations`.
+- **`backend`** — builds from the `production` target, serves on port 3000.
+  Has a healthcheck hitting `/api/ingest` (any HTTP response < 500 proves
+  Nitro booted and secret-party was reachable). Depends on `migrator`
+  completing successfully — won't start if migrations failed.
 - **`worker-deployer`** — builds from the `worker-deployer` target, runs
   `sync-secrets` + `wrangler deploy` as a one-shot, then exits. Depends on the
   backend being healthy so mail isn't forwarded before the backend is ready.
 
-### 4a. Configure environment
+### 3a. Configure environment
 
 - [ ] Copy `.env.example` to `.env` and fill in:
       ```ini
@@ -87,19 +80,22 @@ The repo ships a `docker-compose.yml` with two services:
       Docker Compose reads `.env` automatically. For Dokploy, set the same
       vars in the project's environment configuration.
 
-### 4b. Build and start
+### 3b. Build and start
 
 - [ ] From the repo root:
       ```bash
       docker compose up --build -d
       ```
-      The backend starts, the healthcheck passes once Nitro is ready, then
-      the worker-deployer runs and exits 0.
+      Migrations run first (migrator exits 0), the backend starts, the
+      healthcheck passes once Nitro is ready, then the worker-deployer runs
+      and exits 0.
 - [ ] Check logs:
       ```bash
+      docker compose logs migrator
       docker compose logs backend
       docker compose logs worker-deployer
       ```
+      `migrator` should log `Migrations complete.`
 - [ ] Visit the backend's public URL. With an empty `users` table you'll be
       redirected to `/setup` — create the first admin account (email +
       password, ≥8 chars), then log in at `/login`.
@@ -113,9 +109,13 @@ The repo ships a `docker-compose.yml` with two services:
 
 ### Manual deployment (alternative to Compose)
 
-If you're not using Docker Compose, build and run the backend directly:
+If you're not using Docker Compose, run migrations and the backend directly:
 
-- [ ] Build:
+- [ ] Apply migrations (uses `SECRETS_*` from `.env`, same as Compose):
+      ```bash
+      pnpm --filter @nanomail/db migrate
+      ```
+- [ ] Build the backend:
       ```bash
       pnpm build
       ```
@@ -129,7 +129,7 @@ If you're not using Docker Compose, build and run the backend directly:
       Point `INGEST_URL` in `apps/worker/wrangler.toml` at your backend first.
       Requires `SECRETS_*` in the environment and `CLOUDFLARE_API_TOKEN`.
 
-## 5. Post-deploy verification
+## 4. Post-deploy verification
 
 - [ ] Send a test email to an address routed by Cloudflare Email Routing
 - [ ] Confirm it appears in the inbox UI after refreshing `/`

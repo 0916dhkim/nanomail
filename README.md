@@ -103,7 +103,7 @@ packages/
 
    ```bash
    pnpm db:generate                      # regenerate SQL after schema changes
-   pnpm --filter @nanomail/db migrate    # apply migrations to DATABASE_URL
+   pnpm --filter @nanomail/db migrate    # apply migrations (reads SECRETS_*)
    ```
 
    > Prefer `generate` + `migrate` over `drizzle-kit push` with CockroachDB.
@@ -164,9 +164,10 @@ fetched and decrypted on first use and cached for the process lifetime; if
 secret-party is unreachable or a value fails validation, startup fails rather
 than falling back to anything. There is no plaintext-environment fallback.
 
-> The `@nanomail/db` migrate script (`pnpm --filter @nanomail/db migrate`) is a
-> standalone CLI and reads its database connection string from its own
-> environment.
+> The `@nanomail/db` migrate script (`pnpm --filter @nanomail/db migrate`)
+> also fetches `DATABASE_URL` from secret-party — the same `SECRETS_*` vars
+> apply. In Docker Compose, migrations run automatically as a `migrator`
+> sidecar before the backend starts; see [`DEPLOY.md`](./DEPLOY.md).
 
 ## Deployment
 

@@ -1,4 +1,14 @@
 services:
+  migrator:
+    build:
+      context: .
+      target: migrator
+    environment:
+      - SECRETS_BASE_URL=${SECRETS_BASE_URL}
+      - SECRETS_ENVIRONMENT_ID=${SECRETS_ENVIRONMENT_ID}
+      - SECRETS_PRIVATE_KEY=${SECRETS_PRIVATE_KEY}
+    restart: "no"
+
   backend:
     build:
       context: .
@@ -9,6 +19,9 @@ services:
       - SECRETS_BASE_URL=${SECRETS_BASE_URL}
       - SECRETS_ENVIRONMENT_ID=${SECRETS_ENVIRONMENT_ID}
       - SECRETS_PRIVATE_KEY=${SECRETS_PRIVATE_KEY}
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/ingest').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
       interval: 5s

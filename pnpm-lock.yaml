@@ -99,6 +99,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@nanomail/secrets':
+        specifier: workspace:*
+        version: link:../secrets
       drizzle-orm:
         specifier: 1.0.0-rc.4
         version: 1.0.0-rc.4(@cloudflare/workers-types@4.20260620.1)(@types/pg@8.20.0)(pg@8.22.0)(postgres@3.4.9)(zod@4.4.3)
