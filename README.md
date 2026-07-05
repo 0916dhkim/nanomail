@@ -179,7 +179,7 @@ In short:
 - Build the TanStack Start server and run it at a public URL so the Cloudflare
   worker can POST to `/api/ingest`. It fetches its secret values from
   secret-party at startup (see [Secrets](#secrets)).
-- Deploy the worker with `pnpm --filter @nanomail/worker deploy`. This syncs
+- Deploy the worker with `pnpm --filter @nanomail/worker run deploy`. This syncs
   its secrets from secret-party and ships the code in one step; then wire the
   worker to an Email Routing rule in the Cloudflare dashboard.
 - On first run with an empty database, the app redirects to `/setup` to create

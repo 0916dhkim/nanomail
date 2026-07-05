@@ -124,7 +124,7 @@ If you're not using Docker Compose, run migrations and the backend directly:
       directly).
 - [ ] Deploy the worker separately:
       ```bash
-      pnpm --filter @nanomail/worker deploy
+      pnpm --filter @nanomail/worker run deploy
       ```
       Point `INGEST_URL` in `apps/worker/wrangler.toml` at your backend first.
       Requires `SECRETS_*` in the environment and `CLOUDFLARE_API_TOKEN`.

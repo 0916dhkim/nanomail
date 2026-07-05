@@ -7,6 +7,6 @@ sed -i "s#https://app.example.com/api/ingest#$INGEST_URL#" wrangler.toml
 
 # Sync the worker's secrets from secret-party into Cloudflare's encrypted
 # secret store, then ship the code.
-pnpm --filter @nanomail/worker deploy
+pnpm --filter @nanomail/worker run deploy
 
 echo "Worker deployed successfully."
