@@ -13,8 +13,6 @@ services:
     build:
       context: .
       target: production
-    ports:
-      - "3000:3000"
     environment:
       - SECRETS_BASE_URL=${SECRETS_BASE_URL}
       - SECRETS_ENVIRONMENT_ID=${SECRETS_ENVIRONMENT_ID}
