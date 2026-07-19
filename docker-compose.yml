@@ -36,7 +36,6 @@ services:
       - SECRETS_BASE_URL=${SECRETS_BASE_URL}
       - SECRETS_ENVIRONMENT_ID=${SECRETS_ENVIRONMENT_ID}
       - SECRETS_PRIVATE_KEY=${SECRETS_PRIVATE_KEY}
-      - INGEST_URL=${INGEST_URL}
     depends_on:
       backend:
         condition: service_healthy

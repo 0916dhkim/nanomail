@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { loadSecrets } from "@nanomail/secrets";
@@ -16,6 +17,12 @@ loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
  * from secret-party and pushes them into Cloudflare's native encrypted secret
  * store via `wrangler secret put`. The decrypted values never touch disk.
  *
+ * Worker [vars] written into wrangler.toml at deploy time. These are
+ * non-secret config values baked into the worker bundle.
+ */
+const WORKER_VARS = ["INGEST_URL"] as const;
+
+/**
  * Secrets the worker needs in its Cloudflare environment. Add keys here as the
  * worker grows; each must also exist in the secret-party environment.
  */
@@ -26,7 +33,10 @@ const WORKER_SECRETS = ["INGEST_SECRET"] as const;
  * `process.env` so `wrangler` can authenticate. These don't go into
  * Cloudflare's secret store — they're used by the deploy tooling itself.
  */
-const DEPLOY_CREDENTIALS = ["CLOUDFLARE_API_TOKEN"] as const;
+const DEPLOY_CREDENTIALS = [
+  "CLOUDFLARE_API_TOKEN",
+  "CLOUDFLARE_ACCOUNT_ID",
+] as const;
 
 const baseUrl = process.env.SECRETS_BASE_URL;
 const environmentId = process.env.SECRETS_ENVIRONMENT_ID;
@@ -46,7 +56,7 @@ const allSecrets = await loadSecrets({
   baseUrl,
   environmentId,
   privateKeyBase64,
-  keys: [...WORKER_SECRETS, ...DEPLOY_CREDENTIALS],
+  keys: [...WORKER_VARS, ...WORKER_SECRETS, ...DEPLOY_CREDENTIALS],
 });
 
 // Set deploy credentials in process.env so wrangler picks them up.
@@ -54,6 +64,28 @@ for (const key of DEPLOY_CREDENTIALS) {
   process.env[key] = allSecrets[key];
   console.log(`[sync-secrets] set ${key} in process.env`);
 }
+
+// Write non-secret [vars] into wrangler.toml so they're bundled with the
+// worker. Cloudflare's secret store is for sensitive values; plain config
+// belongs in [vars].
+const wranglerPath = fileURLToPath(
+  new URL("../wrangler.toml", import.meta.url),
+);
+let wrangler = readFileSync(wranglerPath, "utf8");
+for (const key of WORKER_VARS) {
+  const value = allSecrets[key];
+  // Match `KEY = "..."` (with any value) and replace it.
+  const pattern = new RegExp(`^${key}\\s*=\\s*".*"$`, "m");
+  if (!pattern.test(wrangler)) {
+    console.error(
+      `[sync-secrets] ${key} has no matching [vars] entry in wrangler.toml; refusing to write.`,
+    );
+    process.exit(1);
+  }
+  wrangler = wrangler.replace(pattern, `${key} = "${value}"`);
+  console.log(`[sync-secrets] wrote ${key} to wrangler.toml`);
+}
+writeFileSync(wranglerPath, wrangler);
 
 for (const key of WORKER_SECRETS) {
   console.log(`[sync-secrets] syncing ${key} to Cloudflare...`);
@@ -70,5 +102,5 @@ for (const key of WORKER_SECRETS) {
 }
 
 console.log(
-  `[sync-secrets] synced ${WORKER_SECRETS.length} worker secret(s) and set ${DEPLOY_CREDENTIALS.length} deploy credential(s).`,
+  `[sync-secrets] wrote ${WORKER_VARS.length} var(s), synced ${WORKER_SECRETS.length} worker secret(s), and set ${DEPLOY_CREDENTIALS.length} deploy credential(s).`,
 );
