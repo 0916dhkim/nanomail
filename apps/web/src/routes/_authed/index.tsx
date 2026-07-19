@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { css } from "@flow-css/core/css";
 import { desc, eq } from "drizzle-orm";
@@ -54,12 +54,22 @@ function Inbox() {
                 "&:hover": { background: "#f9f9f9" },
               })}
             >
-              <strong>{email.subject || "(no subject)"}</strong>
-              <br />
-              <span className={css({ color: "#666", fontSize: "0.875rem" })}>
-                From: {email.from} —{" "}
-                {new Date(email.receivedAt).toLocaleString()}
-              </span>
+              <Link
+                to="/emails/$id"
+                params={{ id: email.id }}
+                className={css({
+                  textDecoration: "none",
+                  color: "inherit",
+                  display: "block",
+                })}
+              >
+                <strong>{email.subject || "(no subject)"}</strong>
+                <br />
+                <span className={css({ color: "#666", fontSize: "0.875rem" })}>
+                  From: {email.from} —{" "}
+                  {new Date(email.receivedAt).toLocaleString()}
+                </span>
+              </Link>
             </li>
           ))}
         </ul>
