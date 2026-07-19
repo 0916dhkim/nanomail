@@ -24,6 +24,21 @@ const SECRETS = {
     validate: (value) =>
       value.length >= 16 ? null : "must be at least 16 characters",
   },
+  AWS_ACCESS_KEY_ID: {
+    description: "AWS IAM access key ID for SES sending",
+    validate: (value) =>
+      /^AKIA[0-9A-Z]{16}$/.test(value) ? null : "must be a 20-char AKIA access key ID",
+  },
+  AWS_SECRET_ACCESS_KEY: {
+    description: "AWS IAM secret access key for SES sending",
+    validate: (value) =>
+      value.length >= 30 ? null : "must be at least 30 characters",
+  },
+  AWS_REGION: {
+    description: "AWS region where the SES sending identity is verified",
+    validate: (value) =>
+      /^[a-z]{2}-[a-z]+-\d+$/.test(value) ? null : "must be an AWS region like us-east-1",
+  },
 } satisfies Record<string, SecretSpec>;
 
 /** Returns an error message describing why `value` is invalid, or null if ok. */

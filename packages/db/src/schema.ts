@@ -9,6 +9,7 @@ export const emails = cockroachTable("emails", {
   bodyHtml: text("body_html"),
   isInbound: bool("is_inbound").notNull().default(true),
   isRead: bool("is_read").notNull().default(false),
+  replyToEmailId: uuid("reply_to_email_id"),
   receivedAt: timestamp("received_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
