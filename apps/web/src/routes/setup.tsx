@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { css } from "@flow-css/core/css";
 import { useState } from "react";
 import { setupAdminFn } from "~/auth";
@@ -9,6 +9,7 @@ export const Route = createFileRoute("/setup")({
 
 function SetupPage() {
   const [error, setError] = useState<string>();
+  const navigate = useNavigate();
 
   return (
     <div
@@ -38,7 +39,11 @@ function SetupPage() {
               password,
             },
           });
-          if ("error" in result) setError(result.error);
+          if ("error" in result) {
+            setError(result.error);
+          } else {
+            navigate({ to: "/" });
+          }
         }}
       >
         <label className={css({ display: "block", marginBottom: "1rem" })}>

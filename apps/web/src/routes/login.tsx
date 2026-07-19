@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { css } from "@flow-css/core/css";
 import { useState } from "react";
 import { loginFn } from "~/auth";
@@ -9,6 +9,7 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const [error, setError] = useState<string>();
+  const navigate = useNavigate();
 
   return (
     <div
@@ -32,7 +33,11 @@ function LoginPage() {
               password: form.get("password") as string,
             },
           });
-          if (result?.error) setError(result.error);
+          if (result?.error) {
+            setError(result.error);
+          } else {
+            navigate({ to: "/" });
+          }
         }}
       >
         <label

@@ -2,7 +2,6 @@ import { scrypt, randomBytes, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
-import { redirect } from "@tanstack/react-router";
 import { eq, and, gt, count } from "drizzle-orm";
 import { users, sessions } from "@nanomail/db";
 import { getDb } from "./db";
@@ -122,7 +121,7 @@ export const loginFn = createServerFn({ method: "POST" })
       .returning();
 
     setResponseHeader("Set-Cookie", serializeSessionCookie(session!.id));
-    throw redirect({ to: "/" });
+    return { success: true as const };
   });
 
 export const createUserFn = createServerFn({ method: "POST" })
@@ -205,7 +204,7 @@ export const setupAdminFn = createServerFn({ method: "POST" })
       .returning();
 
     setResponseHeader("Set-Cookie", serializeSessionCookie(session!.id));
-    throw redirect({ to: "/" });
+    return { success: true as const };
   });
 
 export const logoutFn = createServerFn({ method: "POST" }).handler(
@@ -218,6 +217,6 @@ export const logoutFn = createServerFn({ method: "POST" }).handler(
     }
 
     setResponseHeader("Set-Cookie", serializeExpiredSessionCookie());
-    throw redirect({ to: "/login" });
+    return { success: true as const };
   },
 );
