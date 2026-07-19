@@ -1,7 +1,7 @@
 import { scrypt, randomBytes, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
+import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { redirect } from "@tanstack/react-router";
 import { eq, and, gt, count } from "drizzle-orm";
 import { users, sessions } from "@nanomail/db";
@@ -121,10 +121,8 @@ export const loginFn = createServerFn({ method: "POST" })
       .values({ userId: user.id, expiresAt })
       .returning();
 
-    throw redirect({
-      to: "/",
-      headers: { "Set-Cookie": serializeSessionCookie(session!.id) },
-    });
+    setResponseHeader("Set-Cookie", serializeSessionCookie(session!.id));
+    throw redirect({ to: "/" });
   });
 
 export const createUserFn = createServerFn({ method: "POST" })
@@ -206,10 +204,8 @@ export const setupAdminFn = createServerFn({ method: "POST" })
       .values({ userId: user!.id, expiresAt })
       .returning();
 
-    throw redirect({
-      to: "/",
-      headers: { "Set-Cookie": serializeSessionCookie(session!.id) },
-    });
+    setResponseHeader("Set-Cookie", serializeSessionCookie(session!.id));
+    throw redirect({ to: "/" });
   });
 
 export const logoutFn = createServerFn({ method: "POST" }).handler(
@@ -221,9 +217,7 @@ export const logoutFn = createServerFn({ method: "POST" }).handler(
       await db.delete(sessions).where(eq(sessions.id, sessionId));
     }
 
-    throw redirect({
-      to: "/login",
-      headers: { "Set-Cookie": serializeExpiredSessionCookie() },
-    });
+    setResponseHeader("Set-Cookie", serializeExpiredSessionCookie());
+    throw redirect({ to: "/login" });
   },
 );
