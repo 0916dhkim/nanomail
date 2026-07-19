@@ -2,6 +2,10 @@ name = "nanomail-worker"
 main = "src/index.ts"
 compatibility_date = "2026-06-20"
 
+# Worker is invoked by Cloudflare Email Routing only; not exposed via HTTP.
+workers_dev = false
+preview_urls = false
+
 # The worker forwards inbound mail to the app backend's ingest endpoint;
 # it never connects to the database directly.
 [vars]
