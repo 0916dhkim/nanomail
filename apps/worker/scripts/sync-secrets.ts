@@ -101,6 +101,20 @@ for (const key of WORKER_SECRETS) {
   }
 }
 
+// Deploy the worker. This must run in-process so wrangler inherits the
+// CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID we set in process.env above
+// (a separate `wrangler` invocation from package.json scripts wouldn't).
+console.log("[sync-secrets] deploying worker to Cloudflare...");
+const deployResult = spawnSync("wrangler", ["deploy"], {
+  stdio: "inherit",
+});
+if (deployResult.status !== 0) {
+  console.error(
+    `[sync-secrets] wrangler deploy exited with ${deployResult.status ?? "unknown"}.`,
+  );
+  process.exit(deployResult.status ?? 1);
+}
+
 console.log(
-  `[sync-secrets] wrote ${WORKER_VARS.length} var(s), synced ${WORKER_SECRETS.length} worker secret(s), and set ${DEPLOY_CREDENTIALS.length} deploy credential(s).`,
+  `[sync-secrets] wrote ${WORKER_VARS.length} var(s), synced ${WORKER_SECRETS.length} worker secret(s), set ${DEPLOY_CREDENTIALS.length} deploy credential(s), and deployed the worker.`,
 );

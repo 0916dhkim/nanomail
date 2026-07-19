@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "sync-secrets": "tsx scripts/sync-secrets.ts",
-    "deploy": "pnpm run sync-secrets && wrangler deploy"
+    "deploy": "pnpm run sync-secrets"
   },
   "dependencies": {},
   "devDependencies": {
