@@ -191,13 +191,25 @@ export const setupAdminFn = createServerFn({ method: "POST" })
     }
 
     const passwordHash = await hashPassword(data.password);
-    await db.insert(users).values({
-      email: data.email,
-      passwordHash,
-      isAdmin: true,
-    });
+    const [user] = await db
+      .insert(users)
+      .values({
+        email: data.email,
+        passwordHash,
+        isAdmin: true,
+      })
+      .returning();
 
-    throw redirect({ to: "/login" });
+    const expiresAt = new Date(Date.now() + SESSION_MAX_AGE * 1000);
+    const [session] = await db
+      .insert(sessions)
+      .values({ userId: user!.id, expiresAt })
+      .returning();
+
+    throw redirect({
+      to: "/",
+      headers: { "Set-Cookie": serializeSessionCookie(session!.id) },
+    });
   });
 
 export const logoutFn = createServerFn({ method: "POST" }).handler(
