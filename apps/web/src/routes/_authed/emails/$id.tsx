@@ -223,13 +223,13 @@ function EmailDetail() {
             disabled={sending}
             className={css({
               padding: "0.5rem 1rem",
-              cursor: sending ? "not-allowed" : "pointer",
+              cursor: "pointer",
               background: "#0066cc",
               color: "#fff",
               border: "none",
               borderRadius: "4px",
-              opacity: sending ? 0.6 : 1,
             })}
+            style={sending ? { opacity: 0.6, cursor: "not-allowed" } : undefined}
           >
             {sending ? "Sending…" : "Send Reply"}
           </button>
