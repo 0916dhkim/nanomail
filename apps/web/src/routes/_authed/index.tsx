@@ -41,6 +41,21 @@ function Inbox() {
       <h1 className={css({ fontSize: "1.5rem", marginBottom: "1rem" })}>
         Inbox — {user.email}
       </h1>
+      <Link
+        to="/compose"
+        className={css({
+          display: "inline-block",
+          marginBottom: "1rem",
+          padding: "0.5rem 1rem",
+          background: "#0066cc",
+          color: "#fff",
+          textDecoration: "none",
+          borderRadius: "4px",
+          fontSize: "0.875rem",
+        })}
+      >
+        Compose
+      </Link>
       {emails.length === 0 ? (
         <p>No emails yet.</p>
       ) : (
