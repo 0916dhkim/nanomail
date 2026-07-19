@@ -10,6 +10,13 @@ export const emails = cockroachTable("emails", {
   isInbound: bool("is_inbound").notNull().default(true),
   isRead: bool("is_read").notNull().default(false),
   replyToEmailId: uuid("reply_to_email_id"),
+  // RFC 5322 Message-ID header value (without angle brackets). Set for both
+  // inbound (parsed from raw) and outbound (generated locally) messages so
+  // future replies can be threaded via In-Reply-To.
+  messageId: text("message_id"),
+  // Conversation grouping key. Inbound messages without an In-Reply-To match
+  // start a new thread; replies inherit the original's threadId.
+  threadId: uuid("thread_id"),
   receivedAt: timestamp("received_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

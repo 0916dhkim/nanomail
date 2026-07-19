@@ -1,8 +1,11 @@
 /**
  * AWS SES v2 email sending via raw fetch + manual Signature V4 signing.
  * Signing logic referenced from aws4fetch (MIT, Michael Hart 2024).
+ *
+ * Sends raw RFC 822 messages (SES `Content.Raw`) so we can set arbitrary
+ * headers like Message-ID, In-Reply-To, and References for proper threading.
  */
-import { createHmac, createHash } from "node:crypto";
+import { createHmac, createHash, randomUUID } from "node:crypto";
 
 // --- SigV4 Signing Helpers ---
 
@@ -79,7 +82,7 @@ function signRequest(opts: {
     sha256(canonicalRequest),
   ].join("\n");
 
-  const signingKey = getSigningKey(secretAccessKey, date, region, service);
+  const signingKey = getSigningKey(opts.secretAccessKey, date, region, service);
   const signature = hmac(signingKey, stringToSign).toString("hex");
 
   headers["Authorization"] = [
@@ -91,7 +94,32 @@ function signRequest(opts: {
   return { url: opts.url, method, headers, body };
 }
 
-// --- SES v2 API ---
+// --- RFC 822 message construction ---
+
+/**
+ * Fold a long header value into multiple lines per RFC 5322 §2.2.3.
+ * Simple implementation: wrap at the first space after 78 cols.
+ */
+function foldHeader(value: string): string {
+  if (value.length <= 78) return value;
+  const out: string[] = [];
+  let rest = value;
+  while (rest.length > 78) {
+    let breakAt = rest.lastIndexOf(" ", 78);
+    if (breakAt <= 0) breakAt = 78;
+    out.push(rest.slice(0, breakAt));
+    rest = " " + rest.slice(breakAt).trimStart();
+  }
+  out.push(rest);
+  return out.join("\r\n");
+}
+
+function encodeHeader(value: string): string {
+  // Encode non-ASCII as RFC 2047 `=?UTF-8?B?...?=` chunks if needed.
+  if (/^[\x20-\x7E]*$/.test(value)) return value;
+  const b64 = Buffer.from(value, "utf-8").toString("base64");
+  return `=?UTF-8?B?${b64}?=`;
+}
 
 export interface SendEmailOptions {
   accessKeyId: string;
@@ -102,41 +130,90 @@ export interface SendEmailOptions {
   subject: string;
   bodyText?: string;
   bodyHtml?: string;
+  /** RFC 5322 Message-ID (without angle brackets). Generated if omitted. */
+  messageId?: string;
+  /** Message-ID this message replies to (without angle brackets). */
+  inReplyTo?: string;
+  /** Space-separated list of Message-IDs for the References header. */
+  references?: string;
+  /** Domain used to generate the Message-ID (e.g. "nanomail.probablydanny.com"). */
+  messageDomain?: string;
 }
 
-export async function sendEmail(opts: SendEmailOptions): Promise<void> {
+/**
+ * Build a minimal RFC 5322 message string. UTF-8 body, plain text (and HTML
+ * multipart/alternative when bodyHtml is provided).
+ */
+export function buildRawMessage(opts: SendEmailOptions): string {
+  const messageDomain = opts.messageDomain || "nanomail.local";
+  const messageId = opts.messageId || `${randomUUID()}@${messageDomain}`;
+  const lines: string[] = [
+    `From: ${encodeHeader(opts.from)}`,
+    `To: ${encodeHeader(opts.to)}`,
+    `Subject: ${foldHeader(encodeHeader(opts.subject))}`,
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: <${messageId}>`,
+  ];
+  if (opts.inReplyTo) lines.push(`In-Reply-To: <${opts.inReplyTo}>`);
+  if (opts.references) lines.push(`References: ${opts.references.split(/\s+/).map((id) => `<${id}>`).join(" ")}`);
+  lines.push("MIME-Version: 1.0");
+
+  if (opts.bodyHtml) {
+    const boundary = `nanomail-${randomUUID()}`;
+    lines.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+    lines.push("");
+    lines.push(`--${boundary}`);
+    lines.push("Content-Type: text/plain; charset=UTF-8");
+    lines.push("Content-Transfer-Encoding: 8bit");
+    lines.push("");
+    lines.push(opts.bodyText || "");
+    lines.push("");
+    lines.push(`--${boundary}`);
+    lines.push("Content-Type: text/html; charset=UTF-8");
+    lines.push("Content-Transfer-Encoding: 8bit");
+    lines.push("");
+    lines.push(opts.bodyHtml);
+    lines.push("");
+    lines.push(`--${boundary}--`);
+  } else {
+    lines.push("Content-Type: text/plain; charset=UTF-8");
+    lines.push("Content-Transfer-Encoding: 8bit");
+    lines.push("");
+    lines.push(opts.bodyText || "");
+  }
+
+  return lines.join("\r\n");
+}
+
+export async function sendEmail(opts: SendEmailOptions): Promise<{ messageId: string }> {
   const {
     accessKeyId,
     secretAccessKey,
     region,
     from,
     to,
-    subject,
-    bodyText,
-    bodyHtml,
   } = opts;
 
-  const url = `https://email.${region}.amazonaws.com/v2/email/outbound-emails`;
+  const messageDomain = opts.messageDomain || "nanomail.local";
+  const messageId = opts.messageId || `${randomUUID()}@${messageDomain}`;
 
-  const body: Record<string, unknown> = {
+  const rawMessage = buildRawMessage({ ...opts, messageId });
+
+  const url = `https://email.${region}.amazonaws.com/v2/email/outbound-emails`;
+  const body = JSON.stringify({
     FromEmailAddress: from,
     Destination: { ToAddresses: [to] },
     Content: {
-      Simple: {
-        Subject: { Data: subject },
-        Body: {},
+      Raw: {
+        Data: Buffer.from(rawMessage, "utf-8").toString("base64"),
       },
     },
-  };
-
-  const simpleBody = (body.Content as Record<string, Record<string, Record<string, unknown>>>).Simple!.Body;
-  if (bodyText) simpleBody.Text = { Data: bodyText };
-  if (bodyHtml) simpleBody.Html = { Data: bodyHtml };
+  });
 
   const signed = signRequest({
     method: "POST",
     url,
-    body: JSON.stringify(body),
+    body,
     accessKeyId,
     secretAccessKey,
     region,
@@ -153,4 +230,6 @@ export async function sendEmail(opts: SendEmailOptions): Promise<void> {
     const text = await res.text();
     throw new Error(`SES send failed (${res.status}): ${text}`);
   }
+
+  return { messageId };
 }

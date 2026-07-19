@@ -1,6 +1,6 @@
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { and, eq } from "drizzle-orm";
+import { and, or, eq, asc } from "drizzle-orm";
 import { emails } from "@nanomail/db";
 import { css } from "@flow-css/core/css";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -8,31 +8,33 @@ import { getDb } from "~/db";
 import { getSession } from "~/auth";
 import { sendEmailFn } from "~/server/api/send";
 
-const fetchEmail = createServerFn({ method: "GET" })
-  .validator((data: { id: string }) => data)
+const fetchThread = createServerFn({ method: "GET" })
+  .validator((data: { threadId: string }) => data)
   .handler(async ({ data }) => {
     const user = await getSession();
     if (!user) throw redirect({ to: "/login" });
     const db = await getDb();
-    const [email] = await db
+    // All emails in this thread that involve the user (as sender or recipient).
+    const rows = await db
       .select()
       .from(emails)
-      .where(and(eq(emails.id, data.id), eq(emails.to, user.email)))
-      .limit(1);
-    if (!email) throw redirect({ to: "/" });
-    return email;
+      .where(
+        and(
+          eq(emails.threadId, data.threadId),
+          or(eq(emails.to, user.email), eq(emails.from, user.email)),
+        ),
+      )
+      .orderBy(asc(emails.receivedAt));
+    if (rows.length === 0) throw redirect({ to: "/" });
+    return rows;
   });
 
-export const Route = createFileRoute("/_authed/emails/$id")({
-  loader: async ({ params }) => fetchEmail({ data: { id: params.id } }),
-  component: EmailDetail,
+export const Route = createFileRoute("/_authed/threads/$threadId")({
+  loader: async ({ params }) =>
+    fetchThread({ data: { threadId: params.threadId } }),
+  component: ThreadView,
 });
 
-/**
- * Split a plain-text email body into the user's message and the quoted
- * original. Recognizes the Gmail-style "On <date>, <sender> wrote:" marker.
- * Returns [visible, quoted] where quoted may be empty.
- */
 function splitQuoted(body: string): { visible: string; quoted: string } {
   const match = body.match(/\n\n(On .+ wrote:\n[\s\S]*)$/);
   if (match) {
@@ -44,13 +46,12 @@ function splitQuoted(body: string): { visible: string; quoted: string } {
   return { visible: body, quoted: "" };
 }
 
-function EmailDetail() {
-  const email = Route.useLoaderData();
+function ThreadMessage({ email }: { email: typeof emails.$inferSelect }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [showQuoted, setShowQuoted] = useState(false);
   const [replying, setReplying] = useState(false);
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
-  const [showQuoted, setShowQuoted] = useState(false);
   const navigate = useNavigate();
 
   const { visible, quoted } = useMemo(
@@ -64,58 +65,38 @@ function EmailDetail() {
     }
   }, [email.bodyHtml]);
 
+  const isInbound = email.isInbound;
+
   return (
     <div
       className={css({
-        padding: "2rem",
-        maxWidth: "800px",
-        margin: "0 auto",
+        marginBottom: "1.5rem",
+        padding: "1rem",
+        borderRadius: "4px",
+        border: "1px solid #eee",
       })}
+      style={{ background: isInbound ? "#f8f9fa" : "#eef6ff" }}
     >
-      <a
-        href="/"
-        className={css({
-          display: "inline-block",
-          marginBottom: "1rem",
-          color: "#0066cc",
-          textDecoration: "none",
-        })}
-      >
-        &larr; Back to inbox
-      </a>
-      <h1 className={css({ fontSize: "1.5rem", marginBottom: "0.5rem" })}>
-        {email.subject || "(no subject)"}
-      </h1>
-      <div
-        className={css({
-          color: "#666",
-          fontSize: "0.875rem",
-          marginBottom: "1.5rem",
-          borderBottom: "1px solid #eee",
-          paddingBottom: "1rem",
-        })}
-      >
-        <div>
-          <strong>From:</strong> {email.from}
-        </div>
-        <div>
-          <strong>To:</strong> {email.to}
-        </div>
-        <div>
-          <strong>Date:</strong> {new Date(email.receivedAt).toLocaleString()}
-        </div>
+      <div className={css({ marginBottom: "0.5rem", fontSize: "0.875rem" })}>
+        <strong>{email.from}</strong>
+        <span className={css({ color: "#666" })}>
+          {" → "}
+          {email.to}
+        </span>
+        <span className={css({ color: "#999", marginLeft: "0.5rem" })}>
+          {new Date(email.receivedAt).toLocaleString()}
+        </span>
       </div>
 
       {email.bodyHtml ? (
         <iframe
           ref={iframeRef}
-          title="email-body"
+          title={`email-${email.id}`}
           sandbox="allow-same-origin"
           className={css({
             width: "100%",
-            minHeight: "60vh",
-            border: "1px solid #eee",
-            borderRadius: "4px",
+            minHeight: "30vh",
+            border: "none",
           })}
         />
       ) : (
@@ -130,7 +111,7 @@ function EmailDetail() {
             {visible}
           </pre>
           {quoted && (
-            <div className={css({ marginTop: "1rem" })}>
+            <div className={css({ marginTop: "0.5rem" })}>
               <button
                 type="button"
                 onClick={() => setShowQuoted((s) => !s)}
@@ -168,14 +149,14 @@ function EmailDetail() {
         type="button"
         onClick={() => setReplying((r) => !r)}
         className={css({
-          marginTop: "1.5rem",
-          padding: "0.5rem 1rem",
+          marginTop: "0.75rem",
+          padding: "0.4rem 0.8rem",
           cursor: "pointer",
           border: "1px solid #0066cc",
           background: "#fff",
           color: "#0066cc",
           borderRadius: "4px",
-          fontSize: "0.875rem",
+          fontSize: "0.8125rem",
         })}
       >
         {replying ? "Cancel" : "Reply"}
@@ -183,12 +164,7 @@ function EmailDetail() {
 
       {replying && (
         <form
-          className={css({
-            marginTop: "1rem",
-            padding: "1rem",
-            border: "1px solid #eee",
-            borderRadius: "4px",
-          })}
+          className={css({ marginTop: "0.75rem" })}
           onSubmit={async (e) => {
             e.preventDefault();
             setError(undefined);
@@ -210,7 +186,7 @@ function EmailDetail() {
             }
           }}
         >
-          <label className={css({ display: "block", marginBottom: "0.5rem" })}>
+          <label className={css({ display: "block", marginBottom: "0.4rem" })}>
             To
             <input
               name="to"
@@ -220,14 +196,14 @@ function EmailDetail() {
               className={css({
                 display: "block",
                 width: "100%",
-                padding: "0.5rem",
-                marginTop: "0.25rem",
+                padding: "0.4rem",
+                marginTop: "0.2rem",
                 border: "1px solid #ccc",
                 borderRadius: "4px",
               })}
             />
           </label>
-          <label className={css({ display: "block", marginBottom: "0.5rem" })}>
+          <label className={css({ display: "block", marginBottom: "0.4rem" })}>
             Subject
             <input
               name="subject"
@@ -241,24 +217,24 @@ function EmailDetail() {
               className={css({
                 display: "block",
                 width: "100%",
-                padding: "0.5rem",
-                marginTop: "0.25rem",
+                padding: "0.4rem",
+                marginTop: "0.2rem",
                 border: "1px solid #ccc",
                 borderRadius: "4px",
               })}
             />
           </label>
-          <label className={css({ display: "block", marginBottom: "0.5rem" })}>
+          <label className={css({ display: "block", marginBottom: "0.4rem" })}>
             Body
             <textarea
               name="body"
               required
-              rows={10}
+              rows={6}
               className={css({
                 display: "block",
                 width: "100%",
-                padding: "0.5rem",
-                marginTop: "0.25rem",
+                padding: "0.4rem",
+                marginTop: "0.2rem",
                 border: "1px solid #ccc",
                 borderRadius: "4px",
                 fontFamily: "inherit",
@@ -266,7 +242,7 @@ function EmailDetail() {
             />
           </label>
           {error && (
-            <p className={css({ color: "red", marginBottom: "0.5rem" })}>
+            <p className={css({ color: "red", marginBottom: "0.4rem" })}>
               {error}
             </p>
           )}
@@ -274,7 +250,7 @@ function EmailDetail() {
             type="submit"
             disabled={sending}
             className={css({
-              padding: "0.5rem 1rem",
+              padding: "0.4rem 0.8rem",
               cursor: "pointer",
               background: "#0066cc",
               color: "#fff",
@@ -287,6 +263,42 @@ function EmailDetail() {
           </button>
         </form>
       )}
+    </div>
+  );
+}
+
+function ThreadView() {
+  const messages = Route.useLoaderData();
+  const subject = messages[0]?.subject || "(no subject)";
+
+  return (
+    <div
+      className={css({
+        padding: "2rem",
+        maxWidth: "800px",
+        margin: "0 auto",
+      })}
+    >
+      <Link
+        to="/"
+        className={css({
+          display: "inline-block",
+          marginBottom: "1rem",
+          color: "#0066cc",
+          textDecoration: "none",
+        })}
+      >
+        &larr; Back to inbox
+      </Link>
+      <h1 className={css({ fontSize: "1.5rem", marginBottom: "1rem" })}>
+        {subject}{" "}
+        <span className={css({ color: "#999", fontSize: "0.875rem" })}>
+          ({messages.length})
+        </span>
+      </h1>
+      {messages.map((email) => (
+        <ThreadMessage key={email.id} email={email} />
+      ))}
     </div>
   );
 }
