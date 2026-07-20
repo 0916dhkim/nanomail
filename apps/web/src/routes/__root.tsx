@@ -36,6 +36,7 @@ export const Route = createRootRoute({
 
     return { user };
   },
+  component: RootComponent,
   shellComponent: RootDocument,
 });
 
@@ -62,6 +63,15 @@ function LoadingBar() {
   );
 }
 
+function RootComponent() {
+  return (
+    <>
+      <LoadingBar />
+      <Outlet />
+    </>
+  );
+}
+
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html>
@@ -69,7 +79,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <LoadingBar />
         {children}
         <Scripts />
       </body>
