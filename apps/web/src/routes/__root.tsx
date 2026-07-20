@@ -6,6 +6,7 @@ import {
   Scripts,
   createRootRoute,
   redirect,
+  useRouterState,
 } from "@tanstack/react-router";
 import * as React from "react";
 import { css } from "@flow-css/core/css";
@@ -38,6 +39,29 @@ export const Route = createRootRoute({
   shellComponent: RootDocument,
 });
 
+function LoadingBar() {
+  const status = useRouterState({ select: (s) => s.status });
+  if (status === "idle") return null;
+  return (
+    <>
+      <style>{`@keyframes nanomail-loading-grow { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }`}</style>
+      <div
+        className={css({
+          position: "fixed",
+          top: "0",
+          left: "0",
+          right: "0",
+          height: "3px",
+          background: "#0066cc",
+          transformOrigin: "left",
+          animation: "nanomail-loading-grow 800ms ease-out forwards",
+          zIndex: "9999",
+        })}
+      />
+    </>
+  );
+}
+
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html>
@@ -45,6 +69,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
+        <LoadingBar />
         {children}
         <Scripts />
       </body>
