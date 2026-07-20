@@ -7,28 +7,35 @@ CockroachDB. A small web UI lets users read their inbox.
 ## Architecture
 
 ```
-                  ┌─────────────────────┐
-  inbound email   │  Cloudflare email   │
-  ───────────────▶│  worker (thin relay)│
-                  └──────────┬──────────┘
-                             │ POST /api/ingest
-                             │ Authorization: Bearer <INGEST_SECRET>
-                             │ body: raw RFC822
-                             ▼
-                  ┌─────────────────────┐        ┌──────────────┐
-                  │  app backend         │  SQL   │  CockroachDB │
-                  │  (TanStack Start /   │───────▶│  (Postgres-  │
-                  │   Nitro server)      │        │   wire)      │
-                  └──────────┬───────────┘        └──────────────┘
-                             │ SSR
-                             ▼
-                        web inbox UI
+                    ┌─────────────────────┐
+   inbound email    │  Cloudflare email   │
+   ────────────────▶│  worker (thin relay)│
+                    └──────────┬──────────┘
+                               │ POST /api/ingest
+                               │ Authorization: Bearer <INGEST_SECRET>
+                               │ body: raw RFC822
+                               ▼
+                    ┌─────────────────────┐        ┌──────────────┐
+                    │  app backend         │  SQL   │  CockroachDB │
+                    │  (TanStack Start /   │───────▶│  (Postgres-  │
+                    │   Nitro server)      │        │   wire)      │
+                    └──────────┬───────────┘        └──────────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │ SSR            │ SES v2 (raw    │
+              ▼                │ RFC822 send)    ▼
+         web inbox UI          └───────────────► outbound email
 ```
 
 The Cloudflare worker never touches the database. It simply forwards the raw
 message to the backend, which owns **all** database operations (parsing with
 `postal-mime` and inserting via Drizzle). This keeps the worker dependency-free
 and centralizes data access in one place.
+
+Outbound mail (replies and composed messages) is sent via AWS SES v2 using
+hand-rolled SigV4 signing — no AWS SDK. The backend builds a raw RFC 5322
+message with proper `Message-ID`, `In-Reply-To`, and `References` headers so
+replies thread correctly in recipients' mail clients.
 
 ## Tech stack
 
@@ -62,9 +69,23 @@ Enable it by adding the `@flow-css/vite` plugin to `vite.config.ts`.
 
 ```
 apps/
-  web/      TanStack Start app — inbox UI, auth, and the /api/ingest endpoint
-    server/api/ingest.post.ts   backend ingest endpoint (DB writes live here)
+  web/      TanStack Start app — inbox UI, auth, ingest + send endpoints
+    server/api/
+      ingest.post.ts        backend ingest endpoint (inbound DB writes)
+    src/
+      server/api/send.ts    outbound email server fn (SES send + DB store)
+      logger.ts             structured JSON logger (stdout/stderr)
+      ses.ts                AWS SES v2 client (SigV4 signing, raw RFC822)
+      routes/
+        _authed/
+          index.tsx               inbox (cursor-paginated, grouped by thread)
+          compose.tsx             new email composer
+          emails/$id.tsx          single email view (with reply composer)
+          threads/$threadId.tsx   thread view (all messages chronologically)
   worker/   Cloudflare email worker — forwards raw mail to the backend
+    scripts/sync-secrets.ts  fetches secrets from secret-party, writes
+                             [vars] to wrangler.toml, pushes secrets to
+                             Cloudflare, then runs `wrangler deploy`
 packages/
   db/       Drizzle schema, migrations, and migrate script
   secrets/  client for secret-party (envelope decryption of tracked secrets)
@@ -149,15 +170,20 @@ decrypts the value locally (AES-256-GCM). The private key never leaves the
 backend process.
 
 Which secrets the backend needs is defined once, declaratively, in the `SECRETS`
-manifest in `apps/web/src/secrets.ts` — that file is the single source of truth.
-Store each of those keys in a secret-party environment, then configure the
-backend to read from it:
+manifest in `apps/web/src/secrets.ts` — that file is the single source of truth
+for which keys must exist in secret-party. Store each of those keys in a
+secret-party environment, then configure the backend to read from it:
 
 ```ini
 SECRETS_BASE_URL=https://secrets.example.com
 SECRETS_ENVIRONMENT_ID=<environment id from the secret-party dashboard>
 SECRETS_PRIVATE_KEY=<base64 PKCS8 private key from API key creation>
 ```
+
+Only these three `SECRETS_*` connection vars live in `.env` / the compose
+environment. All other secrets (DB URL, ingest token, AWS creds, Cloudflare
+creds, worker config) are fetched from secret-party at runtime — never
+duplicated in `.env`.
 
 All three variables are required — including for local development. Secrets are
 fetched and decrypted on first use and cached for the process lifetime; if
@@ -179,9 +205,12 @@ In short:
 - Build the TanStack Start server and run it at a public URL so the Cloudflare
   worker can POST to `/api/ingest`. It fetches its secret values from
   secret-party at startup (see [Secrets](#secrets)).
-- Deploy the worker with `pnpm --filter @nanomail/worker run deploy`. This syncs
-  its secrets from secret-party and ships the code in one step; then wire the
-  worker to an Email Routing rule in the Cloudflare dashboard.
+- Deploy the worker with `pnpm --filter @nanomail/worker run deploy`. This
+  fetches its secrets and `[vars]` from secret-party, pushes them to
+  Cloudflare's secret store, and ships the code in one step (wrangler deploy
+  is invoked from within `sync-secrets` so it inherits the provisioned
+  `CLOUDFLARE_*` env vars); then wire the worker to an Email Routing rule in
+  the Cloudflare dashboard.
 - On first run with an empty database, the app redirects to `/setup` to create
   the first admin account.
 
@@ -190,5 +219,12 @@ In short:
 - **Users/sessions:** passwords are hashed with `scrypt`; sessions are stored in
   the `sessions` table and delivered as an `HttpOnly` cookie. Admins can create
   accounts at `/admin`.
+- **First-run setup:** with an empty `users` table the app redirects to
+  `/setup`, where you create the first admin account. Setup creates a session
+  in-place and redirects to `/` (no separate login step).
+- **Login/logout:** server fns validate credentials and set/clear the session
+  cookie via `setResponseHeader`. Client-side `useNavigate()` handles the
+  post-submit redirect (thrown redirects from server fns called inside
+  `onSubmit` don't reliably trigger client navigation in TanStack Start).
 - **Worker → backend:** a shared bearer token (`INGEST_SECRET`) over HTTPS. The
   ingest endpoint rejects any request without a matching `Authorization` header.

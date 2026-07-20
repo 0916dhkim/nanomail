@@ -27,12 +27,15 @@ in secret-party. Stand it up first.
 - [ ] Create an API key in that environment; secret-party returns a base64
       PKCS8 private key (this becomes `SECRETS_PRIVATE_KEY`). The private key
       never leaves the backend process.
-- [ ] Store each backend secret in the secret-party environment. The
+- [ ] Store each backend + worker secret in the secret-party environment. The
       authoritative list is the `SECRETS` manifest in
-      `apps/web/src/secrets.ts`. As of writing:
-      - [ ] `DATABASE_URL` — CockroachDB connection string (`postgres://...`)
-      - [ ] `INGEST_SECRET` — shared bearer token (≥16 chars) the email worker
-            presents to `/api/ingest`
+      `apps/web/src/secrets.ts` (backend) and the `WORKER_VARS` /
+      `WORKER_SECRETS` / `DEPLOY_CREDENTIALS` arrays in
+      `apps/web/../worker/scripts/sync-secrets.ts` (worker). As of writing this
+      covers: database URL, ingest secret, AWS SES credentials (access key ID,
+      secret access key, region), Cloudflare API token + account ID, and the
+      worker's `INGEST_URL` / `INGEST_SECRET`. Check those files for the
+      current set rather than relying on this doc.
 
 ## 2. Configure the repo-root `.env`
 
@@ -68,17 +71,16 @@ chain — migrations run first, then the backend, then the worker:
 
 ### 3a. Configure environment
 
-- [ ] Copy `.env.example` to `.env` and fill in:
+- [ ] Copy `.env.example` to `.env` and fill in **only** the secret-party
+      connection vars (everything else is fetched from secret-party at
+      runtime, not duplicated in `.env`):
       ```ini
       SECRETS_BASE_URL=https://secrets.example.com
       SECRETS_ENVIRONMENT_ID=<environment id from step 1>
       SECRETS_PRIVATE_KEY=<base64 PKCS8 private key from step 1>
-      CLOUDFLARE_API_TOKEN=<Cloudflare API token with Workers edit permission>
-      CLOUDFLARE_ACCOUNT_ID=<optional — omit if token is single-account scoped>
-      INGEST_URL=https://<your-backend-domain>/api/ingest
       ```
       Docker Compose reads `.env` automatically. For Dokploy, set the same
-      vars in the project's environment configuration.
+      three vars in the compose project's environment configuration.
 
 ### 3b. Build and start
 
@@ -126,10 +128,80 @@ If you're not using Docker Compose, run migrations and the backend directly:
       ```bash
       pnpm --filter @nanomail/worker run deploy
       ```
-      Point `INGEST_URL` in `apps/worker/wrangler.toml` at your backend first.
-      Requires `SECRETS_*` in the environment and `CLOUDFLARE_API_TOKEN`.
+      This fetches the worker's `[vars]` and secrets from secret-party, writes
+      the vars into `wrangler.toml`, pushes secrets to Cloudflare's secret
+      store via `wrangler secret put`, then runs `wrangler deploy` — all from
+      a single `sync-secrets` script so wrangler inherits the provisioned
+      `CLOUDFLARE_*` env vars. Requires `SECRETS_*` in the environment.
 
-## 4. Post-deploy verification
+## 4. Configure outbound email (SES)
+
+Required only if you want reply/compose to work. Skip if you only need
+inbound mail.
+
+### 4a. Verify a sending identity in SES
+
+- [ ] In the SES console (in your `AWS_REGION`), create a **Domain** identity
+      for the domain you'll send from (e.g. `probablydanny.com`). Domain
+      verification covers all subdomains and addresses on that domain.
+- [ ] Enable **Easy DKIM** with **RSA_2048_BIT** key length. Do **not** enable
+      "publish DNS records to Route 53" unless the domain's DNS is hosted in
+      Route 53.
+- [ ] Add the DNS records SES provides to your DNS provider (Cloudflare):
+      - 1 TXT record for domain ownership (`_amazonses.<domain>`)
+      - 3 CNAME records for DKIM (`*._domainkey.<domain>`)
+- [ ] Wait for SES to verify (usually <15 min). Status flips to "Verified" /
+      "Success" once DKIM records propagate.
+
+### 4b. Configure SPF for SES
+
+SES sends from Amazon's IPs; without SPF authorization, recipient servers
+fail the SPF check and route the mail to spam.
+
+- [ ] Add or update the TXT record at the **apex** of your sending domain to
+      include Amazon SES:
+      ```
+      v=spf1 include:_spf.mx.cloudflare.net include:amazonses.com ~all
+      ```
+      (Adjust existing `include:` entries to match your setup. Keep `~all`
+      softfail until you're confident everything works; switch to `-all` for
+      stricter enforcement later.)
+
+### 4c. (Optional) Configure DMARC
+
+If your domain doesn't already have a DMARC record, add one in **none** mode
+to start collecting reports without enforcing policy:
+
+- [ ] TXT record at `_dmarc.<domain>`:
+      ```
+      v=DMARC1; p=none; rua=mailto:<your-email>
+      ```
+
+### 4d. (Optional) Configure custom MAIL FROM
+
+Without a custom MAIL FROM, the envelope sender is `*.amazonses.com`, which
+strict receivers penalize slightly. Setting one aligns SPF/DKIM for DMARC.
+
+- [ ] In SES → identity → "MAIL FROM domain", set a subdomain (e.g.
+      `mail.<domain>`)
+- [ ] Add the MX + SPF TXT records SES provides for the subdomain
+- [ ] Wait for verification
+
+### 4e. Request production access (leave sandbox mode)
+
+By default SES is in **sandbox mode**: you can only send to addresses you've
+also verified in SES. To send replies to arbitrary recipients:
+
+- [ ] SES → Account dashboard → "Request production access"
+- [ ] Fill in: mail type (Transactional), website URL, use case description
+      (personal email service, replies to inbound mail), daily volume
+- [ ] Wait for approval (~24h; sometimes minutes). AWS notifies by email.
+
+While in sandbox, you can test the reply flow by verifying your own personal
+email address as an identity in SES, then sending a test email from it to
+your nanomail address.
+
+## 5. Post-deploy verification
 
 - [ ] Send a test email to an address routed by Cloudflare Email Routing
 - [ ] Confirm it appears in the inbox UI after refreshing `/`
