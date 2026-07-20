@@ -1,6 +1,6 @@
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { and, or, eq, asc } from "drizzle-orm";
+import { and, or, eq, asc, sql } from "drizzle-orm";
 import { emails } from "@nanomail/db";
 import { css } from "@flow-css/core/css";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -14,13 +14,14 @@ const fetchThread = createServerFn({ method: "GET" })
     const user = await getSession();
     if (!user) throw redirect({ to: "/login" });
     const db = await getDb();
-    // All emails in this thread that involve the user (as sender or recipient).
+    // Match the same thread key the inbox uses: COALESCE(thread_id, id).
+    // Legacy rows with null thread_id are their own thread (keyed by id).
     const rows = await db
       .select()
       .from(emails)
       .where(
         and(
-          eq(emails.threadId, data.threadId),
+          sql`COALESCE(${emails.threadId}, ${emails.id}) = ${data.threadId}`,
           or(eq(emails.to, user.email), eq(emails.from, user.email)),
         ),
       )
@@ -28,6 +29,8 @@ const fetchThread = createServerFn({ method: "GET" })
     if (rows.length === 0) throw redirect({ to: "/" });
     return rows;
   });
+
+
 
 export const Route = createFileRoute("/_authed/threads/$threadId")({
   loader: async ({ params }) =>
