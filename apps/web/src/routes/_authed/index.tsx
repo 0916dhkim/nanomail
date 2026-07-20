@@ -34,8 +34,7 @@ const fetchInboxPage = createServerFn({ method: "GET" })
     const db = await getDb();
 
     // Latest message per thread, paginated by (received_at, id) cursor.
-    // COALESCE(thread_id, id) treats legacy rows (null thread_id) as their
-    // own thread. Window function gives the thread message count for free.
+    // Window function gives the thread message count for free.
     const cursorClause = data.cursorReceivedAt
       ? sql`(received_at, id) < (${data.cursorReceivedAt}::timestamptz, ${data.cursorId}::uuid)`
       : sql`TRUE`;
@@ -44,10 +43,10 @@ const fetchInboxPage = createServerFn({ method: "GET" })
       SELECT * FROM (
         SELECT *,
           ROW_NUMBER() OVER (
-            PARTITION BY COALESCE(thread_id, id)
+            PARTITION BY thread_id
             ORDER BY received_at DESC, id DESC
           ) AS rn,
-          COUNT(*) OVER (PARTITION BY COALESCE(thread_id, id)) AS thread_count
+          COUNT(*) OVER (PARTITION BY thread_id) AS thread_count
         FROM emails
         WHERE "to" = ${user.email} OR "from" = ${user.email}
       ) t
@@ -127,7 +126,6 @@ function Inbox() {
         <>
           <ul className={css({ listStyle: "none", padding: "0" })}>
             {allItems.map((item) => {
-              const threadId = item.thread_id ?? item.id;
               const participant = item.is_inbound ? item.from : "You";
               return (
                 <li
@@ -140,7 +138,7 @@ function Inbox() {
                 >
                   <Link
                     to="/threads/$threadId"
-                    params={{ threadId }}
+                    params={{ threadId: item.thread_id! }}
                     className={css({
                       textDecoration: "none",
                       color: "inherit",

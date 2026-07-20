@@ -18,7 +18,7 @@ export const emails = cockroachTable(
     messageId: text("message_id"),
     // Conversation grouping key. Inbound messages without an In-Reply-To match
     // start a new thread; replies inherit the original's threadId.
-    threadId: uuid("thread_id"),
+    threadId: uuid("thread_id").notNull().defaultRandom(),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
