@@ -5,6 +5,7 @@ import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { eq, and, gt, count } from "drizzle-orm";
 import { users, sessions } from "@nanomail/db";
 import { getDb } from "./db";
+import { log } from "./logger";
 
 const scryptAsync = promisify(scrypt);
 
@@ -111,6 +112,7 @@ export const loginFn = createServerFn({ method: "POST" })
       .limit(1);
 
     if (!user || !(await verifyPassword(data.password, user.passwordHash))) {
+      log.warn("login: failed", { email: data.email });
       return { error: "Invalid email or password" };
     }
 
@@ -121,6 +123,7 @@ export const loginFn = createServerFn({ method: "POST" })
       .returning();
 
     setResponseHeader("Set-Cookie", serializeSessionCookie(session!.id));
+    log.info("login: success", { userId: user.id, email: user.email });
     return { success: true as const };
   });
 
@@ -204,6 +207,7 @@ export const setupAdminFn = createServerFn({ method: "POST" })
       .returning();
 
     setResponseHeader("Set-Cookie", serializeSessionCookie(session!.id));
+    log.info("setup: admin account created", { userId: user!.id, email: user!.email });
     return { success: true as const };
   });
 
@@ -217,6 +221,7 @@ export const logoutFn = createServerFn({ method: "POST" }).handler(
     }
 
     setResponseHeader("Set-Cookie", serializeExpiredSessionCookie());
+    log.info("logout: success", { sessionId: sessionId ?? null });
     return { success: true as const };
   },
 );

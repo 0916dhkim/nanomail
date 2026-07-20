@@ -7,6 +7,7 @@ import { getDb } from "~/db";
 import { getSession } from "~/auth";
 import { getSecrets } from "~/secrets";
 import { sendEmail as sendEmailViaSes } from "~/ses";
+import { log } from "~/logger";
 
 export interface SendEmailInput {
   to: string;
@@ -56,21 +57,34 @@ export const sendEmailFn = createServerFn({ method: "POST" })
       return { error: "To and subject are required" };
     }
 
-    // Resolve the original email (if replying) — needed for In-Reply-To,
-    // References, threadId, and the quoted body.
-    let original: typeof emails.$inferSelect | null = null;
-    if (data.replyToEmailId) {
-      const db = await getDb();
-      const [row] = await db
-        .select()
-        .from(emails)
-        .where(and(eq(emails.id, data.replyToEmailId), eq(emails.to, user.email)))
-        .limit(1);
-      if (!row) {
-        return { error: "Original email not found" };
-      }
-      original = row;
+  // Resolve the original email (if replying) — needed for In-Reply-To,
+  // References, threadId, and the quoted body.
+  let original: typeof emails.$inferSelect | null = null;
+  if (data.replyToEmailId) {
+    const db = await getDb();
+    const [row] = await db
+      .select()
+      .from(emails)
+      .where(and(eq(emails.id, data.replyToEmailId), eq(emails.to, user.email)))
+      .limit(1);
+    if (!row) {
+      log.warn("sendEmail: original email not found", {
+        userId: user.id,
+        replyToEmailId: data.replyToEmailId,
+      });
+      return { error: "Original email not found" };
     }
+    original = row;
+  }
+
+  log.info("sendEmail: preparing", {
+    userId: user.id,
+    from: user.email,
+    to: data.to,
+    subject: data.subject,
+    isReply: !!data.replyToEmailId,
+    replyToEmailId: data.replyToEmailId ?? null,
+  });
 
     // Compose the full body: user's text + quoted original (if replying).
     let bodyText = data.bodyText ?? "";
@@ -113,8 +127,22 @@ export const sendEmailFn = createServerFn({ method: "POST" })
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      log.error("sendEmail: SES send failed", {
+        userId: user.id,
+        to: data.to,
+        subject: data.subject,
+        messageId: localMessageId,
+        error: err instanceof Error ? err : { message },
+      });
       return { error: `Failed to send: ${message}` };
     }
+
+    log.info("sendEmail: SES send succeeded", {
+      userId: user.id,
+      to: data.to,
+      messageId: localMessageId,
+      threadId: original?.threadId ?? null,
+    });
 
     // Store the sent email for history.
     const db = await getDb();
@@ -128,6 +156,11 @@ export const sendEmailFn = createServerFn({ method: "POST" })
       replyToEmailId: data.replyToEmailId ?? null,
       messageId: localMessageId,
       threadId: original?.threadId ?? randomUUID(),
+    });
+
+    log.info("sendEmail: stored sent email in DB", {
+      userId: user.id,
+      messageId: localMessageId,
     });
 
     return { success: true as const };

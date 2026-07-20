@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { emails } from "@nanomail/db";
 import { getDb } from "~/db";
 import { getSecrets } from "~/secrets";
+import { log } from "~/logger";
 
 /**
  * Inbound-email ingestion endpoint. The Cloudflare email worker forwards the
@@ -15,12 +16,16 @@ export default defineEventHandler(async (event) => {
   const { INGEST_SECRET } = await getSecrets();
   const authorization = event.req.headers.get("authorization");
   if (authorization !== `Bearer ${INGEST_SECRET}`) {
+    log.warn("ingest: unauthorized", {
+      hasAuth: !!authorization,
+    });
     return new Response("Unauthorized", { status: 401 });
   }
 
   const from = event.req.headers.get("x-mail-from");
   const to = event.req.headers.get("x-mail-to");
   if (!from || !to) {
+    log.warn("ingest: missing mail-from/to headers", { from, to });
     return new Response("Missing X-Mail-From / X-Mail-To headers", {
       status: 400,
     });
@@ -38,12 +43,23 @@ export default defineEventHandler(async (event) => {
     .map((s) => s.replace(/^<|>$/g, ""))
     .filter(Boolean) ?? [];
 
+  log.info("ingest: received", {
+    from,
+    to,
+    subject: parsed.subject ?? "",
+    messageId,
+    inReplyTo: inReplyToRaw,
+    hasHtml: !!parsed.html,
+    hasText: !!parsed.text,
+  });
+
   const db = await getDb();
 
   // Resolve the thread: if this is a reply, try to find an existing email
   // whose messageId matches In-Reply-To or any of References. Fall back to
   // starting a new thread.
   let threadId: string | null = null;
+  let threadSource: "in-reply-to" | "references" | "new" = "new";
   const candidateIds = [inReplyToRaw, ...referencesRaw].filter(
     (x): x is string => x != null,
   );
@@ -55,12 +71,20 @@ export default defineEventHandler(async (event) => {
       .limit(1);
     if (existing?.threadId) {
       threadId = existing.threadId;
+      threadSource = candidateId === inReplyToRaw ? "in-reply-to" : "references";
       break;
     }
   }
   if (!threadId) {
     threadId = randomUUID();
   }
+
+  log.info("ingest: resolved thread", {
+    threadId,
+    threadSource,
+    from,
+    messageId,
+  });
 
   await db.insert(emails).values({
     from,
@@ -71,6 +95,13 @@ export default defineEventHandler(async (event) => {
     isInbound: true,
     messageId,
     threadId,
+  });
+
+  log.info("ingest: stored", {
+    from,
+    to,
+    threadId,
+    messageId,
   });
 
   return { ok: true };
