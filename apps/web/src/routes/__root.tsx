@@ -42,24 +42,23 @@ export const Route = createRootRoute({
 
 function LoadingBar() {
   const status = useRouterState({ select: (s) => s.status });
-  if (status === "idle") return null;
   return (
-    <>
-      <style>{`@keyframes nanomail-loading-grow { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }`}</style>
-      <div
-        className={css({
-          position: "fixed",
-          top: "0",
-          left: "0",
-          right: "0",
-          height: "3px",
-          background: "#0066cc",
-          transformOrigin: "left",
-          animation: "nanomail-loading-grow 800ms ease-out forwards",
-          zIndex: "9999",
-        })}
-      />
-    </>
+    <div
+      className={css({
+        position: "fixed",
+        top: "0",
+        left: "0",
+        right: "0",
+        height: "3px",
+        background: "#0066cc",
+        transformOrigin: "left",
+        zIndex: "9999",
+        transition: "transform 200ms ease-out",
+      })}
+      style={{
+        transform: status === "idle" ? "scaleX(0)" : "scaleX(1)",
+      }}
+    />
   );
 }
 
