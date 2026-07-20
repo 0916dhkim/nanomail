@@ -4,7 +4,7 @@ import { routeTree } from "./routeTree.gen";
 export function getRouter() {
   const router = createRouter({
     routeTree,
-    defaultPreload: "intent",
+    defaultPreload: false,
     scrollRestoration: true,
   });
   return router;
