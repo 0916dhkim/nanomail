@@ -42,13 +42,16 @@ const fetchInboxPage = createServerFn({ method: "GET" })
 
     const result = await db.execute(sql`
       SELECT * FROM (
-        SELECT DISTINCT ON (COALESCE(thread_id, id)) *,
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(thread_id, id)
+            ORDER BY received_at DESC, id DESC
+          ) AS rn,
           COUNT(*) OVER (PARTITION BY COALESCE(thread_id, id)) AS thread_count
         FROM emails
         WHERE "to" = ${user.email} OR "from" = ${user.email}
-        ORDER BY COALESCE(thread_id, id), received_at DESC, id DESC
       ) t
-      WHERE ${cursorClause}
+      WHERE rn = 1 AND ${cursorClause}
       ORDER BY received_at DESC, id DESC
       LIMIT ${PAGE_SIZE + 1}
     `);
